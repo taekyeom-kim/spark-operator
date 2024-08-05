@@ -71,6 +71,8 @@ func patchSparkPod(pod *corev1.Pod, app *v1beta2.SparkApplication) []patchOperat
 		patchOps = append(patchOps, *op)
 	}
 
+	patchOps = append(patchOps, addGangSchedulerAnnotations(pod, app)...)
+
 	if pod.Spec.Affinity == nil {
 		op := addAffinity(pod, app)
 		if op != nil {
@@ -550,6 +552,46 @@ func addSchedulerName(pod *corev1.Pod, app *v1beta2.SparkApplication) *patchOper
 		return nil
 	}
 	return &patchOperation{Op: "add", Path: "/spec/schedulerName", Value: *schedulerName}
+}
+
+// XXX (taekyeom.kim) Is it right place to handle gang scheduler annotations in the webhook??..
+func addGangSchedulerAnnotations(pod *corev1.Pod, app *v1beta2.SparkApplication) []patchOperation {
+	var ops []patchOperation
+
+	if app.Spec.BatchScheduler != nil && *app.Spec.BatchScheduler == "yunikorn" {
+		if pod.Annotations == nil {
+			ops = append(
+				ops,
+				patchOperation{
+					Op:    "add",
+					Path:  "/metadata/annotations",
+					Value: map[string]string{},
+				},
+			)
+		}
+
+		if util.IsDriverPod(pod) {
+			ops = append(
+				ops,
+				patchOperation{
+					Op:    "add",
+					Path:  "/metadata/annotations/yunikorn.apache.org~1task-group-name",
+					Value: "spark-driver",
+				},
+			)
+		} else if util.IsExecutorPod(pod) {
+			ops = append(
+				ops,
+				patchOperation{
+					Op:    "add",
+					Path:  "/metadata/annotations/yunikorn.apache.org~1task-group-name",
+					Value: "spark-executor",
+				},
+			)
+		}
+	}
+
+	return ops
 }
 
 func addPriorityClassName(pod *corev1.Pod, app *v1beta2.SparkApplication) []patchOperation {
